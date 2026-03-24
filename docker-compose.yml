@@ -1,0 +1,22 @@
+version: "3"
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: lexus
+      POSTGRES_PASSWORD: lexus1234
+      POSTGRES_DB: lexus_ad
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  metabase:
+    image: metabase/metabase
+    ports:
+      - "3000:3000"
+    depends_on:
+      - postgres
+
+volumes:
+  pgdata:

@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+metabase-bq-key.json
+metabase-sa-key.json
+*.pyc
+.DS_Store
