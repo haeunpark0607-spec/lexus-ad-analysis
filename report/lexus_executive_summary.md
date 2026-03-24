@@ -143,10 +143,15 @@ Email은 클릭은 되지만 **실제 구매/신청으로 이어지지 않습니
 
 ## 5. RFM 고객 등급 분석 (회사 x 채널)
 
-회사별로 어떤 채널이 효과적인지 R(최근성), F(빈도), M(수익) 기준으로 등급을 매김.
+**5개 회사** × **6개 채널** = **총 30개 조합**을 만들고, 각 조합별로 R(최근성), F(빈도), M(수익) 점수를 매겨 등급을 분류함.
 
-| 등급 | 개수 | 주요 채널 | 의미 |
-|------|------|----------|------|
+- 회사: TechCorp, NexGen Systems, Alpha Innovations, DataTech Solutions, Innovate Industries
+- 채널: YouTube, Instagram, Facebook, Google Ads, Website, Email
+
+30개 조합의 등급 결과:
+
+| 등급 | 개수 (30개 중) | 주요 채널 | 의미 |
+|------|--------------|----------|------|
 | VIP | 8개 | YouTube, Instagram | 돈을 제일 잘 버는 조합 |
 | Loyal | 6개 | Google Ads, Facebook | 꾸준히 괜찮은 조합 |
 | Normal | 9개 | 혼합 | 보통 |
