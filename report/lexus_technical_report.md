@@ -7,14 +7,13 @@
                          ↓ 가중치 적용
                     [보정 테이블 campaign_adjusted]
                          ↓ GROUP BY 요약
-                    [데이터 마트 7개]
+                    [데이터 마트 9개]
                          ↓
               ┌──────────┴──────────┐
-         [BigQuery 콘솔]      [PostgreSQL]
-           SQL 분석              ↓
-                           [Metabase 대시보드]
-                              ↓
-                         [ngrok 외부 공유]
+         [BigQuery 콘솔]      [Metabase 대시보드]
+           SQL 분석           (BigQuery 직접 연결)
+                                    ↓
+                              [ngrok 외부 공유]
 ```
 
 ---
@@ -25,9 +24,8 @@
 |------|------|
 | 데이터 웨어하우스 | Google BigQuery |
 | Python 환경 | uv + Python 3.9 |
-| 컨테이너 | Docker Compose |
-| 데이터베이스 | PostgreSQL 15 (Metabase 연결용) |
-| 대시보드 | Metabase (BigQuery 직접 연결 + PostgreSQL) |
+| 컨테이너 | Docker (Metabase) |
+| 대시보드 | Metabase (BigQuery 직접 연결) |
 | 외부 공유 | ngrok 터널링 |
 | 버전 관리 | Git + GitHub |
 
@@ -70,7 +68,9 @@ END
       ├── campaign_partitioned_daily (일별 파티션)
       ├── campaign_clustered        (파티션 + 클러스터링)
       ├── mart_monthly              (월별 요약)
+      ├── mart_monthly_growth       (월별 성장률 + 이동평균)
       ├── mart_channel              (채널별 요약)
+      ├── mart_channel_rank         (월별 채널 순위)
       ├── mart_campaign_type        (캠페인 유형별 요약)
       ├── mart_location             (지역별 요약)
       ├── mart_rfm                  (회사×채널 RFM)
@@ -128,6 +128,45 @@ SELECT *,
     ELSE 'At Risk'
   END AS segment
 FROM rfm_scored
+```
+
+### 예시: mart_monthly_growth (윈도우 함수 활용)
+
+```sql
+CREATE OR REPLACE TABLE lexus_ad.mart_monthly_growth AS
+SELECT
+  month,
+  avg_roi,
+  total_clicks,
+  total_impressions,
+  ROUND(avg_roi - LAG(avg_roi) OVER (ORDER BY month), 2) AS roi_change,
+  ROUND((avg_roi - LAG(avg_roi) OVER (ORDER BY month)) / LAG(avg_roi) OVER (ORDER BY month) * 100, 1) AS roi_growth_pct,
+  SUM(total_clicks) OVER (ORDER BY month) AS cumulative_clicks,
+  SUM(total_impressions) OVER (ORDER BY month) AS cumulative_impressions,
+  ROUND(AVG(avg_roi) OVER (ORDER BY month ROWS BETWEEN 2 PRECEDING AND CURRENT ROW), 2) AS moving_avg_3m
+FROM lexus_ad.mart_monthly
+ORDER BY month
+```
+
+### 예시: mart_channel_rank (월별 채널 순위)
+
+```sql
+CREATE OR REPLACE TABLE lexus_ad.mart_channel_rank AS
+WITH channel_monthly AS (
+  SELECT
+    FORMAT_DATE("%Y-%m", Date) AS month,
+    Channel_Used AS channel,
+    ROUND(AVG(ROI), 2) AS avg_roi
+  FROM lexus_ad.campaign_adjusted
+  GROUP BY month, channel
+)
+SELECT
+  month,
+  channel,
+  avg_roi,
+  RANK() OVER (PARTITION BY month ORDER BY avg_roi DESC) AS rank
+FROM channel_monthly
+ORDER BY month, rank
 ```
 
 ---
@@ -190,40 +229,36 @@ print(job.total_bytes_processed)
 ### Docker Compose
 
 ```yaml
-version: "3"
 services:
-  postgres:
-    image: postgres:15
-    environment:
-      POSTGRES_USER: lexus
-      POSTGRES_PASSWORD: lexus1234
-      POSTGRES_DB: lexus_ad
-    ports:
-      - "5432:5432"
-
   metabase:
     image: metabase/metabase
     ports:
       - "3000:3000"
-    depends_on:
-      - postgres
 ```
 
-### Metabase 연결
+### Metabase - BigQuery 연결
 
-- PostgreSQL: BigQuery 데이터를 Python으로 복사하여 연결
-- BigQuery: 서비스 계정 키(JSON)로 직접 연결
+서비스 계정 키(JSON)로 BigQuery에 직접 연결.
 
 기존 프로젝트에서 서비스 계정 키 생성이 조직 정책(iam.disableServiceAccountKeyCreation)으로 차단되어, 새 프로젝트(lexus-ad-project-2026) 생성 후 해결.
 
 ### 외부 공유
 
-ngrok으로 localhost:3000을 외부 URL로 터널링하여 대시보드 공유.
+ngrok으로 localhost:3000을 외부 URL로 터널링하여 대시보드 공유. 공개 링크 설정으로 로그인 없이 접근 가능.
 
 ---
 
-## 8. 대시보드 구성 (Metabase)
+## 8. 대시보드 구성 (Metabase + BigQuery)
 
+### 현황 카드
+| 카드 | 쿼리 |
+|------|------|
+| 총 노출수 | `SELECT SUM(Impressions) FROM lexus_ad.campaign_adjusted` |
+| 총 클릭수 | `SELECT SUM(Clicks) FROM lexus_ad.campaign_adjusted` |
+| 평균 전환율 | `SELECT ROUND(AVG(Conversion_Rate) * 100, 1) FROM lexus_ad.campaign_adjusted` |
+| 평균 ROI | `SELECT ROUND(AVG(ROI), 2) FROM lexus_ad.campaign_adjusted` |
+
+### 차트
 | 차트 | 데이터 소스 | 시각화 |
 |------|-----------|--------|
 | 채널별 ROI (RFM 세그먼트) | mart_rfm | 막대 차트 (시리즈: segment) |
@@ -231,21 +266,12 @@ ngrok으로 localhost:3000을 외부 URL로 터널링하여 대시보드 공유.
 | 월별 ROI 추이 | mart_monthly | 꺾은선 차트 |
 | 캠페인 유형별 전환율 | mart_campaign_type | 막대 차트 |
 | 지역별 ROI | mart_location | 막대 차트 |
-| 세그먼트별 채널 ROI | mart_segment_channel | 막대 차트 (시리즈: channel) |
 | 채널별 CTR·전환율·ROI | mart_ctr_engagement | 막대 차트 (Y축 3개) |
+| 세그먼트별 채널 ROI | mart_segment_channel | 막대 차트 (시리즈: channel) |
 
 ---
 
-## 9. OLTP vs OLAP
-
-| | OLTP (PostgreSQL) | OLAP (BigQuery) |
-|--|-------------------|-----------------|
-| 용도 | 데이터 쓰기/수정 | 대량 데이터 분석 |
-| 이 프로젝트에서 | Metabase 연결용 | 분석/데이터 마트 |
-| 선택 이유 | Metabase-BigQuery 직접 연결 불가 시 대안 | 20만 행 분석에 적합 |
-
----
-
-## 10. 분석 결과 요약
+## 9. 분석 결과 요약
 
 비즈니스 인사이트는 [비즈니스 리포트](lexus_executive_summary.md) 참조.
+SQL 코드 상세 해석은 [SQL 공부 가이드](sql_study_guide.md) 참조.
