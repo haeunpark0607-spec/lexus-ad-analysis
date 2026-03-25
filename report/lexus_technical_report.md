@@ -62,8 +62,7 @@ END
 ```
 프로젝트: lexus-ad-project-2026
  └── 데이터셋: lexus_ad
-      ├── campaign_raw              (원본 20만 행)
-      ├── campaign_adjusted         (보정 데이터)
+      ├── campaign_adjusted         (보정 데이터 20만 행)
       ├── campaign_partitioned      (월별 파티션)
       ├── campaign_partitioned_daily (일별 파티션)
       ├── campaign_clustered        (파티션 + 클러스터링)
@@ -129,6 +128,13 @@ SELECT *,
   END AS segment
 FROM rfm_scored
 ```
+
+### RFM 분석 한계점
+
+- 30개 조합 전부 마지막 캠페인 날짜가 2021-12-31로 동일 → recency가 모두 0
+- R(최근성) 점수는 NTILE로 5등분해도 값이 같아서 랜덤 배정됨 → **변별력 없음**
+- 실질적으로 **F(빈도)와 M(수익)이 등급을 결정**함
+- 실무에서는 캠페인 종료 시점이 다양하므로 R도 유의미할 것
 
 ### 예시: mart_monthly_growth (윈도우 함수 활용)
 
